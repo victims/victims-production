@@ -62,16 +62,6 @@ SSH_HOST=$(rhc app show -l ${RHC_LOGIN} -a ${APP_NAME} | grep "SSH:" | cut -d':'
 SSH_CMD="rhc ssh -l ${RHC_LOGIN} -a ${APP_NAME}"
 DATA_DIR=$(${SSH_CMD} "echo \$OPENSHIFT_DATA_DIR" | sed s='/$'=''=)
 
-# config
-if [ ! -z "${VICTIMS_CFG}" ]; then
-    echo "[prod-deploy] Restoring victims.cfg from backup..."
-    if [ -f "${VICTIMS_CFG}" ]; then
-        scp ${VICTIMS_CFG} $SSH_HOST:$DATA_DIR/victimsweb.cfg || echo "[prod-deploy] Failed to upload victimsweb.cfg"
-    else
-        echo "[prod-deploy] WARN: ${VICTIMS_CFG} not found. Sk"
-    fi
-fi
-
 # database
 if [ ! -z "${MONGODB_DUMP}" ]; then
     echo "[prod-deploy] Restoring database from backup..."
@@ -83,6 +73,7 @@ if [ ! -z "${MONGODB_DUMP}" ]; then
 	fi
     else
         echo "[prod-deploy] ERROR: ${MONGODB_DUMP} not found or is not a directory"
+	DB_SKIP=1
     fi
 fi
 
@@ -93,9 +84,18 @@ fi
 
 echo "[prod-deploy] Reloading app with correct branch"
 cd ${APP_NAME}
+git remote add upstream https://github.com/victims/victims-server-openshift.git
 sed -i /'VICTIMS_GIT_BRANCH'/d config/victimsweb.build.env
 echo "VICTIMS_GIT_BRANCH=${VICTIMS_BRANCH}" >> config/victimsweb.build.env
-git remote add upstream https://github.com/victims/victims-server-openshift.git
+
+#config
+if [ ! -z "${VICTIMS_CFG}" ]; then
+	echo "[prod-deploy] Restoring ${VICTIMS_CFG}"
+	cp ${VICTIMS_CFG} config/victimsweb.cfg
+	git add config/victimsweb.cfg
+	git commit -m "Restoring app configuration"
+fi
+
 git add config/victimsweb.build.env
 git commit -m "Switching to <${VICTIMS_BRANCH}> branch"
 git push origin master
