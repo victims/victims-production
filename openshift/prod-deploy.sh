@@ -14,6 +14,7 @@ usage()
     -d <path>   Mongo database dump dir (produced by mongodump) 
                 containing <path>/APP_NAME (if not db restore is skipped)
     -c <path>   victims.cfg file to be used
+    -e          Use existing app
     -b <branch> upstream branch to use (default=deployed)
 EOF
     exit 0
@@ -24,8 +25,9 @@ APP_NAME=web01
 MONGODB_DUMP=
 VICTIMS_CFG=
 VICTIMS_BRANCH=deployed
+EXISTING_APP=
 
-while getopts "hl:a:d:c:" OPTION; do
+while getopts "hl:a:d:c:e" OPTION; do
     case $OPTION in
         h) usage;;
         l) RHC_LOGIN=$OPTARG;;
@@ -33,6 +35,7 @@ while getopts "hl:a:d:c:" OPTION; do
         d) MONGODB_DUMP=$OPTARG;;
         c) VICTIMS_CFG=$OPTARG;;
         b) VICTIMS_BRANCH=$OPTARG;;
+        e) EXISTING_APP=1;;
         ?) usage;;
     esac
 done
@@ -43,13 +46,16 @@ fi
 
 echo "[prod-deploy] Using login: ${RHC_LOGIN}"
 
-if [ -d "${APP_NAME}" ]; then
-    echo "[prod-deploy] Backing up current git-clone"
-    mv "${APP_NAME}" "${APP_NAME}.bak"
-fi	
-
-echo "[prod-deploy] Creating ${APP_NAME}"
-rhc app create -l ${RHC_LOGIN} ${APP_NAME} mongodb-2.2 python-2.7 --scaling --gear-size medium --from-code git://github.com/victims/victims-server-openshift.git
+if [ -z ${EXISTING_APP} ]; then
+    if [ -d "${APP_NAME}" ]; then
+        echo "[prod-deploy] Backing up current git-clone"
+        mv "${APP_NAME}" "${APP_NAME}.bak"
+    fi
+    echo "[prod-deploy] Creating ${APP_NAME}"
+    rhc app create -l ${RHC_LOGIN} ${APP_NAME} mongodb-2.2 python-2.7 --scaling --gear-size medium --from-code git://github.com/victims/victims-server-openshift.git
+else
+    echo "[prod-deploy] Skipping app creation, using an existing instance."
+fi
 
 # Skipping rockmongo as it does not scale
 # rhc cartridge add rockmongo-1.1 -a ${APP_NAME}
@@ -72,20 +78,16 @@ if [ ! -z "${MONGODB_DUMP}" ]; then
             DB_SKIP=1
         else
             scp -r ${MONGODB_DUMP} $SSH_HOST:$DATA_DIR/mongodb.dump
-            if [ $? -ne 0 ]; then
+            if [ $? -eq 0 ]; then
+                $SSH_CMD "mongorestore --drop -d \$OPENSHIFT_APP_NAME -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT \$OPENSHIFT_DATA_DIR/mongodb.dump/\$OPENSHIFT_APP_NAME"
+                $SSH_CMD "rm -rf $DATA_DIR/mongodb.dump"
+            else
                 echo "[prod-deploy] Failed to upload mongodb.dump"
-                DB_SKIP=1
             fi
         fi
     else
         echo "[prod-deploy] ERROR: ${MONGODB_DUMP} not found or is not a directory"
-        DB_SKIP=1
     fi
-fi
-
-if [ -z $DB_SKIP ]; then
-    $SSH_CMD "mongorestore --drop -d \$OPENSHIFT_APP_NAME -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT \$OPENSHIFT_DATA_DIR/mongodb.dump/\$OPENSHIFT_APP_NAME"
-    $SSH_CMD "rm -rf $DATA_DIR/mongodb.dump"
 fi
 
 echo "[prod-deploy] Reloading app with correct branch"
