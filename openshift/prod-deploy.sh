@@ -34,8 +34,8 @@ while getopts "hl:a:d:c:e" OPTION; do
         h) usage;;
         l) RHC_LOGIN=$OPTARG;;
         a) APP_NAME=$OPTARG;;
-        d) MONGODB_DUMP=$OPTARG;;
-        c) VICTIMS_CFG=$OPTARG;;
+        d) MONGODB_DUMP=$(realpath $OPTARG);;
+        c) VICTIMS_CFG=$(realpath $OPTARG);;
         b) VICTIMS_BRANCH=$OPTARG;;
         e) EXISTING_APP=1;;
         ?) usage;;
@@ -75,11 +75,11 @@ DATA_DIR=$(${SSH_CMD} "echo \$OPENSHIFT_DATA_DIR" | sed s='/$'=''=)
 if [ ! -z "${MONGODB_DUMP}" ]; then
     echo "$LOG_PREFIX Restoring database from backup..."
     if [ -d "${MONGODB_DUMP}" ]; then
-        if [ ! -d ${MONGODB_DUMP}/${APP_NAME} ]; then
+        if [ ! -d "${MONGODB_DUMP}/${APP_NAME}" ]; then
             echo "$LOG_PREFIX Cound not locate ${MONGODB_DUMP}/${APP_NAME}. Skipping!"
             DB_SKIP=1
         else
-            scp -r ${MONGODB_DUMP} $SSH_HOST:$DATA_DIR/mongodb.dump
+            scp -r "${MONGODB_DUMP}" $SSH_HOST:$DATA_DIR/mongodb.dump
             if [ $? -eq 0 ]; then
                 $SSH_CMD "mongorestore --drop -d \$OPENSHIFT_APP_NAME -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT \$OPENSHIFT_DATA_DIR/mongodb.dump/\$OPENSHIFT_APP_NAME"
                 $SSH_CMD "rm -rf $DATA_DIR/mongodb.dump"
@@ -102,7 +102,7 @@ echo "VICTIMS_GIT_BRANCH=${VICTIMS_BRANCH}" >> ${ENV_COFIG}
 #config
 if [ ! -z "${VICTIMS_CFG}" ]; then
     echo "$LOG_PREFIX Restoring ${VICTIMS_CFG}"
-    cp ${VICTIMS_CFG} config/victimsweb.cfg
+    cp "${VICTIMS_CFG}" config/victimsweb.cfg
     git add config/victimsweb.cfg
     git commit -m "Restoring app configuration"
 fi
