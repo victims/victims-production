@@ -3,17 +3,18 @@
 usage()
 {
     cat << EOF
-usage: $0 options
+    usage: $0 options
 
-This script run the test1 or test2 over a machine.
+    This script run the test1 or test2 over a machine.
 
-OPTIONS:
-   -h           Show this message
-   -l <login>   RHC login (required)
-   -a <name>    App name to use (default=web01)
-   -d <path>    Mongo database dump dir (produced by mongodump)
-   -c <path>    victims.cfg file to be used
-   -b <branch>  upstream branch to use (default=deployed)
+    OPTIONS:
+    -h          Show this message
+    -l <login>  RHC login (required)
+    -a <name>   App name to use (default=web01)
+    -d <path>   Mongo database dump dir (produced by mongodump) 
+                containing <path>/APP_NAME (if not db restore is skipped)
+    -c <path>   victims.cfg file to be used
+    -b <branch> upstream branch to use (default=deployed)
 EOF
     exit 0
 }
@@ -25,26 +26,26 @@ VICTIMS_CFG=
 VICTIMS_BRANCH=deployed
 
 while getopts "hl:a:d:c:" OPTION; do
-     case $OPTION in
-         h) usage;;
-         l) RHC_LOGIN=$OPTARG;;
-         a) APP_NAME=$OPTARG;;
-         d) MONGODB_DUMP=$OPTARG;;
-         c) VICTIMS_CFG=$OPTARG;;
-         b) VICTIMS_BRANCH=$OPTARG;;
-         ?) usage;;
-     esac
+    case $OPTION in
+        h) usage;;
+        l) RHC_LOGIN=$OPTARG;;
+        a) APP_NAME=$OPTARG;;
+        d) MONGODB_DUMP=$OPTARG;;
+        c) VICTIMS_CFG=$OPTARG;;
+        b) VICTIMS_BRANCH=$OPTARG;;
+        ?) usage;;
+    esac
 done
 
 if [ -z $RHC_LOGIN ]; then
-     usage
+    usage
 fi
 
 echo "[prod-deploy] Using login: ${RHC_LOGIN}"
 
 if [ -d "${APP_NAME}" ]; then
-	echo "[prod-deploy] Backing up current git-clone"
-	mv "${APP_NAME}" "${APP_NAME}.bak"
+    echo "[prod-deploy] Backing up current git-clone"
+    mv "${APP_NAME}" "${APP_NAME}.bak"
 fi	
 
 echo "[prod-deploy] Creating ${APP_NAME}"
@@ -66,37 +67,43 @@ DATA_DIR=$(${SSH_CMD} "echo \$OPENSHIFT_DATA_DIR" | sed s='/$'=''=)
 if [ ! -z "${MONGODB_DUMP}" ]; then
     echo "[prod-deploy] Restoring database from backup..."
     if [ -d "${MONGODB_DUMP}" ]; then
-        scp -r ${MONGODB_DUMP} $SSH_HOST:$DATA_DIR/mongodb.dump
-	if [ $? -ne 0 ]; then
-		echo "[prod-deploy] Failed to upload mongodb.dump"
-		DB_SKIP=1
-	fi
+        if [ ! -d ${MONGODB_DUMP}/${APP_NAME} ]; then
+            echo "[prod-deploy] Cound not locate ${MONGODB_DUMP}/${APP_NAME}. Skipping!"
+            DB_SKIP=1
+        else
+            scp -r ${MONGODB_DUMP} $SSH_HOST:$DATA_DIR/mongodb.dump
+            if [ $? -ne 0 ]; then
+                echo "[prod-deploy] Failed to upload mongodb.dump"
+                DB_SKIP=1
+            fi
+        fi
     else
         echo "[prod-deploy] ERROR: ${MONGODB_DUMP} not found or is not a directory"
-	DB_SKIP=1
+        DB_SKIP=1
     fi
 fi
 
 if [ -z $DB_SKIP ]; then
-    $SSH_CMD "mongorestore -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT \$OPENSHIFT_DATA_DIR/mongodb.dump"
+    $SSH_CMD "mongorestore --drop -d \$OPENSHIFT_APP_NAME -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT \$OPENSHIFT_DATA_DIR/mongodb.dump/\$OPENSHIFT_APP_NAME"
     $SSH_CMD "rm -rf $DATA_DIR/mongodb.dump"
 fi
 
 echo "[prod-deploy] Reloading app with correct branch"
 cd ${APP_NAME}
+ENV_COFIG=config/victimsweb.env
 git remote add upstream https://github.com/victims/victims-server-openshift.git
-sed -i /'VICTIMS_GIT_BRANCH'/d config/victimsweb.build.env
-echo "VICTIMS_GIT_BRANCH=${VICTIMS_BRANCH}" >> config/victimsweb.build.env
+sed -i /'VICTIMS_GIT_BRANCH'/d ${ENV_COFIG}
+echo "VICTIMS_GIT_BRANCH=${VICTIMS_BRANCH}" >> ${ENV_COFIG}
 
 #config
 if [ ! -z "${VICTIMS_CFG}" ]; then
-	echo "[prod-deploy] Restoring ${VICTIMS_CFG}"
-	cp ${VICTIMS_CFG} config/victimsweb.cfg
-	git add config/victimsweb.cfg
-	git commit -m "Restoring app configuration"
+    echo "[prod-deploy] Restoring ${VICTIMS_CFG}"
+    cp ${VICTIMS_CFG} config/victimsweb.cfg
+    git add config/victimsweb.cfg
+    git commit -m "Restoring app configuration"
 fi
 
-git add config/victimsweb.build.env
+git add ${ENV_COFIG}
 git commit -m "Switching to <${VICTIMS_BRANCH}> branch"
 git push origin master
 cd ../
