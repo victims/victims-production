@@ -1,5 +1,7 @@
 #! /usr/bin/env bash
 
+LOG_PREFIX="[prod-backup]"
+
 usage()
 {
     cat << EOF
@@ -37,21 +39,21 @@ if [ -z $RHC_LOGIN ]; then
      usage
 fi
 
-echo "[prod-backup] Using login: ${RHC_LOGIN}"
+echo "$LOG_PREFIX Using login: ${RHC_LOGIN}"
 SSH_HOST=$(rhc app show -l ${RHC_LOGIN} -a ${APP_NAME} | grep "SSH:" | cut -d':' -f2 | sed s/'^[ ]*'/''/)
 SSH_CMD="rhc ssh -l ${RHC_LOGIN} -a ${APP_NAME}"
 DATA_DIR=$(${SSH_CMD} "echo \$OPENSHIFT_DATA_DIR" | sed s='/$'=''=)
 REPO_DIR=$(${SSH_CMD} "echo \$OPENSHIFT_REPO_DIR" | sed s='/$'=''=)
 
-echo "[prod-backup] Preparing database backup"
+echo "$LOG_PREFIX Preparing database backup"
 $SSH_CMD "mongodump -d \$OPENSHIFT_APP_NAME -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT --out \$OPENSHIFT_DATA_DIR/mongodb.dump"
-echo "[prod-backup] Downloading database backup"
+echo "$LOG_PREFIX Downloading database backup"
 scp -r $SSH_HOST:$DATA_DIR/mongodb.dump "${MONGODB_DUMP}"
 $SSH_CMD "rm -rf \$OPENSHIFT_DATA_DIR/mongodb.dump"
 echo ""
 
-echo "[prod-backup] Downloading config backup"
+echo "$LOG_PREFIX Downloading config backup"
 scp $SSH_HOST:$REPO_DIR/config/victimsweb.cfg "${VICTIMS_CFG}"
 echo ""
 
-echo "[prod-backup] Backup complete! Have a nice day!"
+echo "$LOG_PREFIX Backup complete! Have a nice day!"

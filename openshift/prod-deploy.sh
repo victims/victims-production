@@ -1,5 +1,7 @@
 #! /usr/bin/env bash
 
+LOG_PREFIX="[prod-deploy]"
+
 usage()
 {
     cat << EOF
@@ -44,25 +46,25 @@ if [ -z $RHC_LOGIN ]; then
     usage
 fi
 
-echo "[prod-deploy] Using login: ${RHC_LOGIN}"
+echo "$LOG_PREFIX Using login: ${RHC_LOGIN}"
 
 if [ -z ${EXISTING_APP} ]; then
     if [ -d "${APP_NAME}" ]; then
-        echo "[prod-deploy] Backing up current git-clone"
+        echo "$LOG_PREFIX Backing up current git-clone"
         mv "${APP_NAME}" "${APP_NAME}.bak"
     fi
-    echo "[prod-deploy] Creating ${APP_NAME}"
+    echo "$LOG_PREFIX Creating ${APP_NAME}"
     rhc app create -l ${RHC_LOGIN} ${APP_NAME} mongodb-2.2 python-2.7 --scaling --gear-size medium --from-code git://github.com/victims/victims-server-openshift.git
 else
-    echo "[prod-deploy] Skipping app creation, using an existing instance."
+    echo "$LOG_PREFIX Skipping app creation, using an existing instance."
 fi
 
 # Skipping rockmongo as it does not scale
 # rhc cartridge add rockmongo-1.1 -a ${APP_NAME}
 
 if [ ! -d "$APP_NAME" ]; then
-    echo "[prod-deploy] Application was not cloned!! Trying to clone now ..."
-    rhc git-clone -l ${RHC_LOGIN} ${APP_NAME} || (echo "[prod-deploy] I tried & failed!!" && exit 1)
+    echo "$LOG_PREFIX Application was not cloned!! Trying to clone now ..."
+    rhc git-clone -l ${RHC_LOGIN} ${APP_NAME} || (echo "$LOG_PREFIX I tried & failed!!" && exit 1)
 fi
 
 SSH_HOST=$(rhc app show -l ${RHC_LOGIN} -a ${APP_NAME} | grep "SSH:" | cut -d':' -f2 | sed s/'^[ ]*'/''/)
@@ -71,10 +73,10 @@ DATA_DIR=$(${SSH_CMD} "echo \$OPENSHIFT_DATA_DIR" | sed s='/$'=''=)
 
 # database
 if [ ! -z "${MONGODB_DUMP}" ]; then
-    echo "[prod-deploy] Restoring database from backup..."
+    echo "$LOG_PREFIX Restoring database from backup..."
     if [ -d "${MONGODB_DUMP}" ]; then
         if [ ! -d ${MONGODB_DUMP}/${APP_NAME} ]; then
-            echo "[prod-deploy] Cound not locate ${MONGODB_DUMP}/${APP_NAME}. Skipping!"
+            echo "$LOG_PREFIX Cound not locate ${MONGODB_DUMP}/${APP_NAME}. Skipping!"
             DB_SKIP=1
         else
             scp -r ${MONGODB_DUMP} $SSH_HOST:$DATA_DIR/mongodb.dump
@@ -82,15 +84,15 @@ if [ ! -z "${MONGODB_DUMP}" ]; then
                 $SSH_CMD "mongorestore --drop -d \$OPENSHIFT_APP_NAME -h \$OPENSHIFT_MONGODB_DB_HOST -u \$OPENSHIFT_MONGODB_DB_USERNAME -p \$OPENSHIFT_MONGODB_DB_PASSWORD --port \$OPENSHIFT_MONGODB_DB_PORT \$OPENSHIFT_DATA_DIR/mongodb.dump/\$OPENSHIFT_APP_NAME"
                 $SSH_CMD "rm -rf $DATA_DIR/mongodb.dump"
             else
-                echo "[prod-deploy] Failed to upload mongodb.dump"
+                echo "$LOG_PREFIX Failed to upload mongodb.dump"
             fi
         fi
     else
-        echo "[prod-deploy] ERROR: ${MONGODB_DUMP} not found or is not a directory"
+        echo "$LOG_PREFIX ERROR: ${MONGODB_DUMP} not found or is not a directory"
     fi
 fi
 
-echo "[prod-deploy] Reloading app with correct branch"
+echo "$LOG_PREFIX Reloading app with correct branch"
 cd ${APP_NAME}
 ENV_COFIG=config/victimsweb.env
 git remote add upstream https://github.com/victims/victims-server-openshift.git
@@ -99,7 +101,7 @@ echo "VICTIMS_GIT_BRANCH=${VICTIMS_BRANCH}" >> ${ENV_COFIG}
 
 #config
 if [ ! -z "${VICTIMS_CFG}" ]; then
-    echo "[prod-deploy] Restoring ${VICTIMS_CFG}"
+    echo "$LOG_PREFIX Restoring ${VICTIMS_CFG}"
     cp ${VICTIMS_CFG} config/victimsweb.cfg
     git add config/victimsweb.cfg
     git commit -m "Restoring app configuration"
@@ -110,4 +112,4 @@ git commit -m "Switching to <${VICTIMS_BRANCH}> branch"
 git push origin master
 cd ../
 
-echo "[prod-deploy] Deploy completed! Have a nice day!"
+echo "$LOG_PREFIX Deploy completed! Have a nice day!"
